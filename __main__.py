@@ -1,31 +1,38 @@
+# python -m pygame.docs
+
 import os
-import sys
-import warnings
+import webbrowser
+from urllib.parse import quote, urlunparse
 
-# Remove '' and current working directory from the first entry
-# of sys.path, if present to avoid using current directory
-# in pip commands check, freeze, install, list and show,
-# when invoked as python -m pip <command>
-if sys.path[0] in ("", os.getcwd()):
-    sys.path.pop(0)
 
-# If we are running from a wheel, add the wheel to sys.path
-# This allows the usage python pip-*.whl/pip install pip-*.whl
-if __package__ == "":
-    # __file__ is pip-*.whl/pip/__main__.py
-    # first dirname call strips of '/__main__.py', second strips off '/pip'
-    # Resulting path is the name of the wheel itself
-    # Add that to sys.path so we can import pip
-    path = os.path.dirname(os.path.dirname(__file__))
-    sys.path.insert(0, path)
+def _iterpath(path):
+    path, last = os.path.split(path)
+    if last:
+        for p in _iterpath(path):
+            yield p
+        yield last
+
+
+# for test suite to confirm pygame built with local docs
+def has_local_docs():
+    pkg_dir = os.path.dirname(os.path.abspath(__file__))
+    main_page = os.path.join(pkg_dir, "generated", "index.html")
+    return os.path.exists(main_page)
+
+
+def open_docs():
+    pkg_dir = os.path.dirname(os.path.abspath(__file__))
+    main_page = os.path.join(pkg_dir, "generated", "index.html")
+    if os.path.exists(main_page):
+        url_path = quote("/".join(_iterpath(main_page)))
+        drive, rest = os.path.splitdrive(__file__)
+        if drive:
+            url_path = "%s/%s" % (drive, url_path)
+        url = urlunparse(("file", "", url_path, "", "", ""))
+    else:
+        url = "https://www.pygame.org/docs/"
+    webbrowser.open(url)
+
 
 if __name__ == "__main__":
-    # Work around the error reported in #9540, pending a proper fix.
-    # Note: It is essential the warning filter is set *before* importing
-    #       pip, as the deprecation happens at import time, not runtime.
-    warnings.filterwarnings(
-        "ignore", category=DeprecationWarning, module=".*packaging\\.version"
-    )
-    from pip._internal.cli.main import main as _main
-
-    sys.exit(_main())
+    open_docs()
