@@ -1,371 +1,244 @@
-# coding: ascii
-# pygame - Python Game Library
-# Copyright (C) 2000-2001  Pete Shinners
-#
-# This library is free software; you can redistribute it and/or
-# modify it under the terms of the GNU Library General Public
-# License as published by the Free Software Foundation; either
-# version 2 of the License, or (at your option) any later version.
-#
-# This library is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-# Library General Public License for more details.
-#
-# You should have received a copy of the GNU Library General Public
-# License along with this library; if not, write to the Free
-# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
-#
-# Pete Shinners
-# pete@shinners.org
-"""Pygame is a set of Python modules designed for writing games.
-It is written on top of the excellent SDL library. This allows you
-to create fully featured games and multimedia programs in the python
-language. The package is highly portable, with games running on
-Windows, MacOS, OS X, BeOS, FreeBSD, IRIX, and Linux."""
+"""Extensions to the 'distutils' for large or complex distributions"""
 
-import sys
+from fnmatch import fnmatchcase
+import functools
 import os
-
-# Choose Windows display driver
-if os.name == "nt":
-    # pypy does not find the dlls, so we add package folder to PATH.
-    pygame_dir = os.path.split(__file__)[0]
-    os.environ["PATH"] = os.environ["PATH"] + ";" + pygame_dir
-
-# when running under X11, always set the SDL window WM_CLASS to make the
-#   window managers correctly match the pygame window.
-elif "DISPLAY" in os.environ and "SDL_VIDEO_X11_WMCLASS" not in os.environ:
-    os.environ["SDL_VIDEO_X11_WMCLASS"] = os.path.basename(sys.argv[0])
-
-
-class MissingModule:
-    _NOT_IMPLEMENTED_ = True
-
-    def __init__(self, name, urgent=0):
-        self.name = name
-        exc_type, exc_msg = sys.exc_info()[:2]
-        self.info = str(exc_msg)
-        self.reason = f"{exc_type.__name__}: {self.info}"
-        self.urgent = urgent
-        if urgent:
-            self.warn()
-
-    def __getattr__(self, var):
-        if not self.urgent:
-            self.warn()
-            self.urgent = 1
-        missing_msg = f"{self.name} module not available ({self.reason})"
-        raise NotImplementedError(missing_msg)
-
-    def __nonzero__(self):
-        return False
-
-    __bool__ = __nonzero__
-
-    def warn(self):
-        msg_type = "import" if self.urgent else "use"
-        message = f"{msg_type} {self.name}: {self.info}\n({self.reason})"
-        try:
-            import warnings
-
-            level = 4 if self.urgent else 3
-            warnings.warn(message, RuntimeWarning, level)
-        except ImportError:
-            print(message)
-
-
-# we need to import like this, each at a time. the cleanest way to import
-# our modules is with the import command (not the __import__ function)
-# isort: skip_file
-
-# first, the "required" modules
-from pygame.base import *  # pylint: disable=wildcard-import; lgtm[py/polluting-import]
-from pygame.constants import *  # now has __all__ pylint: disable=wildcard-import; lgtm[py/polluting-import]
-from pygame.version import *  # pylint: disable=wildcard-import; lgtm[py/polluting-import]
-from pygame.rect import Rect
-from pygame.rwobject import encode_string, encode_file_path
-import pygame.surflock
-import pygame.color
-
-Color = pygame.color.Color
-import pygame.bufferproxy
-
-BufferProxy = pygame.bufferproxy.BufferProxy
-import pygame.math
-
-Vector2 = pygame.math.Vector2
-Vector3 = pygame.math.Vector3
-
-__version__ = ver
-
-# next, the "standard" modules
-# we still allow them to be missing for stripped down pygame distributions
-if get_sdl_version() < (2, 0, 0):
-    # cdrom only available for SDL 1.2.X
-    try:
-        import pygame.cdrom
-    except (ImportError, IOError):
-        cdrom = MissingModule("cdrom", urgent=1)
-
-try:
-    import pygame.display
-except (ImportError, IOError):
-    display = MissingModule("display", urgent=1)
-
-try:
-    import pygame.draw
-except (ImportError, IOError):
-    draw = MissingModule("draw", urgent=1)
-
-try:
-    import pygame.event
-except (ImportError, IOError):
-    event = MissingModule("event", urgent=1)
-
-try:
-    import pygame.image
-except (ImportError, IOError):
-    image = MissingModule("image", urgent=1)
-
-try:
-    import pygame.joystick
-except (ImportError, IOError):
-    joystick = MissingModule("joystick", urgent=1)
-
-try:
-    import pygame.key
-except (ImportError, IOError):
-    key = MissingModule("key", urgent=1)
-
-try:
-    import pygame.mouse
-except (ImportError, IOError):
-    mouse = MissingModule("mouse", urgent=1)
-
-try:
-    import pygame.cursors
-    from pygame.cursors import Cursor
-except (ImportError, IOError):
-    cursors = MissingModule("cursors", urgent=1)
-    Cursor = lambda: Missing_Function
-
-try:
-    import pygame.sprite
-except (ImportError, IOError):
-    sprite = MissingModule("sprite", urgent=1)
-
-try:
-    import pygame.threads
-except (ImportError, IOError):
-    threads = MissingModule("threads", urgent=1)
-
-try:
-    import pygame.pixelcopy
-except (ImportError, IOError):
-    pixelcopy = MissingModule("pixelcopy", urgent=1)
-
-
-def warn_unwanted_files():
-    """warn about unneeded old files"""
-
-    # a temporary hack to warn about camera.so and camera.pyd.
-    install_path = os.path.split(pygame.base.__file__)[0]
-    extension_ext = os.path.splitext(pygame.base.__file__)[1]
-
-    # here are the .so/.pyd files we need to ask to remove.
-    ext_to_remove = ["camera"]
-
-    # here are the .py/.pyo/.pyc files we need to ask to remove.
-    py_to_remove = ["color"]
-
-    # Don't warn on Symbian. The color.py is used as a wrapper.
-    if os.name == "e32":
-        py_to_remove = []
-
-    # See if any of the files are there.
-    extension_files = [f"{x}{extension_ext}" for x in ext_to_remove]
-
-    py_files = [
-        f"{x}{py_ext}" for py_ext in [".py", ".pyc", ".pyo"] for x in py_to_remove
-    ]
-
-    files = py_files + extension_files
-
-    unwanted_files = []
-    for f in files:
-        unwanted_files.append(os.path.join(install_path, f))
-
-    ask_remove = []
-    for f in unwanted_files:
-        if os.path.exists(f):
-            ask_remove.append(f)
-
-    if ask_remove:
-        message = "Detected old file(s).  Please remove the old files:\n"
-        message += " ".join(ask_remove)
-        message += "\nLeaving them there might break pygame.  Cheers!\n\n"
-
-        try:
-            import warnings
-
-            level = 4
-            warnings.warn(message, RuntimeWarning, level)
-        except ImportError:
-            print(message)
-
-
-# disable, because we hopefully don't need it.
-# warn_unwanted_files()
-
-
-try:
-    from pygame.surface import Surface, SurfaceType
-except (ImportError, IOError):
-    Surface = lambda: Missing_Function
-
-try:
-    import pygame.mask
-    from pygame.mask import Mask
-except (ImportError, IOError):
-    mask = MissingModule("mask", urgent=0)
-    Mask = lambda: Missing_Function
-
-try:
-    from pygame.pixelarray import PixelArray
-except (ImportError, IOError):
-    PixelArray = lambda: Missing_Function
-
-try:
-    from pygame.overlay import Overlay
-except (ImportError, IOError):
-    Overlay = lambda: Missing_Function
-
-try:
-    import pygame.time
-except (ImportError, IOError):
-    time = MissingModule("time", urgent=1)
-
-try:
-    import pygame.transform
-except (ImportError, IOError):
-    transform = MissingModule("transform", urgent=1)
-
-# lastly, the "optional" pygame modules
-if "PYGAME_FREETYPE" in os.environ:
-    try:
-        import pygame.ftfont as font
-
-        sys.modules["pygame.font"] = font
-    except (ImportError, IOError):
-        pass
-try:
-    import pygame.font
-    import pygame.sysfont
-
-    pygame.font.SysFont = pygame.sysfont.SysFont
-    pygame.font.get_fonts = pygame.sysfont.get_fonts
-    pygame.font.match_font = pygame.sysfont.match_font
-except (ImportError, IOError):
-    font = MissingModule("font", urgent=0)
-
-# try and load pygame.mixer_music before mixer, for py2app...
-try:
-    import pygame.mixer_music
-
-    # del pygame.mixer_music
-    # print ("NOTE2: failed importing pygame.mixer_music in lib/__init__.py")
-except (ImportError, IOError):
-    pass
-
-try:
-    import pygame.mixer
-except (ImportError, IOError):
-    mixer = MissingModule("mixer", urgent=0)
-
-# always fails, but MissingModule needs an exception to process
-try:
-    import pygame.movie
-except (ImportError, IOError):
-    movie = MissingModule("movie", urgent=0)
-
-try:
-    import pygame.scrap
-except (ImportError, IOError):
-    scrap = MissingModule("scrap", urgent=0)
-
-try:
-    import pygame.surfarray
-except (ImportError, IOError):
-    surfarray = MissingModule("surfarray", urgent=0)
-
-try:
-    import pygame.sndarray
-except (ImportError, IOError):
-    sndarray = MissingModule("sndarray", urgent=0)
-
-try:
-    import pygame.fastevent
-except (ImportError, IOError):
-    fastevent = MissingModule("fastevent", urgent=0)
-
-# there's also a couple "internal" modules not needed
-# by users, but putting them here helps "dependency finder"
-# programs get everything they need (like py2exe)
-try:
-    import pygame.imageext
-
-    del pygame.imageext
-except (ImportError, IOError):
-    pass
-
-
-def packager_imports():
-    """some additional imports that py2app/py2exe will want to see"""
-    import atexit
-    import numpy
-    import OpenGL.GL
-    import pygame.macosx
-    import pygame.colordict
-
-
-# make Rects pickleable
-
-import copyreg
-
-
-def __rect_constructor(x, y, w, h):
-    return Rect(x, y, w, h)
-
-
-def __rect_reduce(r):
-    assert isinstance(r, Rect)
-    return __rect_constructor, (r.x, r.y, r.w, r.h)
-
-
-copyreg.pickle(Rect, __rect_reduce, __rect_constructor)
-
-
-# make Colors pickleable
-def __color_constructor(r, g, b, a):
-    return Color(r, g, b, a)
-
-
-def __color_reduce(c):
-    assert isinstance(c, Color)
-    return __color_constructor, (c.r, c.g, c.b, c.a)
-
-
-copyreg.pickle(Color, __color_reduce, __color_constructor)
-
-# Thanks for supporting pygame. Without support now, there won't be pygame later.
-if "PYGAME_HIDE_SUPPORT_PROMPT" not in os.environ:
-    print(
-        "pygame {} (SDL {}.{}.{}, Python {}.{}.{})".format(  # pylint: disable=consider-using-f-string
-            ver, *get_sdl_version() + sys.version_info[0:3]
+import re
+
+import _distutils_hack.override  # noqa: F401
+
+import distutils.core
+from distutils.errors import DistutilsOptionError
+from distutils.util import convert_path
+
+from ._deprecation_warning import SetuptoolsDeprecationWarning
+
+import setuptools.version
+from setuptools.extension import Extension
+from setuptools.dist import Distribution
+from setuptools.depends import Require
+from . import monkey
+from . import logging
+
+
+__all__ = [
+    'setup',
+    'Distribution',
+    'Command',
+    'Extension',
+    'Require',
+    'SetuptoolsDeprecationWarning',
+    'find_packages',
+    'find_namespace_packages',
+]
+
+__version__ = setuptools.version.__version__
+
+bootstrap_install_from = None
+
+
+class PackageFinder:
+    """
+    Generate a list of all Python packages found within a directory
+    """
+
+    @classmethod
+    def find(cls, where='.', exclude=(), include=('*',)):
+        """Return a list all Python packages found within directory 'where'
+
+        'where' is the root directory which will be searched for packages.  It
+        should be supplied as a "cross-platform" (i.e. URL-style) path; it will
+        be converted to the appropriate local path syntax.
+
+        'exclude' is a sequence of package names to exclude; '*' can be used
+        as a wildcard in the names, such that 'foo.*' will exclude all
+        subpackages of 'foo' (but not 'foo' itself).
+
+        'include' is a sequence of package names to include.  If it's
+        specified, only the named packages will be included.  If it's not
+        specified, all found packages will be included.  'include' can contain
+        shell style wildcard patterns just like 'exclude'.
+        """
+
+        return list(
+            cls._find_packages_iter(
+                convert_path(where),
+                cls._build_filter('ez_setup', '*__pycache__', *exclude),
+                cls._build_filter(*include),
+            )
         )
-    )
-    print("Hello from the pygame community. https://www.pygame.org/contribute.html")
 
-# cleanup namespace
-del pygame, os, sys, MissingModule, copyreg
+    @classmethod
+    def _find_packages_iter(cls, where, exclude, include):
+        """
+        All the packages found in 'where' that pass the 'include' filter, but
+        not the 'exclude' filter.
+        """
+        for root, dirs, files in os.walk(where, followlinks=True):
+            # Copy dirs to iterate over it, then empty dirs.
+            all_dirs = dirs[:]
+            dirs[:] = []
+
+            for dir in all_dirs:
+                full_path = os.path.join(root, dir)
+                rel_path = os.path.relpath(full_path, where)
+                package = rel_path.replace(os.path.sep, '.')
+
+                # Skip directory trees that are not valid packages
+                if '.' in dir or not cls._looks_like_package(full_path):
+                    continue
+
+                # Should this package be included?
+                if include(package) and not exclude(package):
+                    yield package
+
+                # Keep searching subdirectories, as there may be more packages
+                # down there, even if the parent was excluded.
+                dirs.append(dir)
+
+    @staticmethod
+    def _looks_like_package(path):
+        """Does a directory look like a package?"""
+        return os.path.isfile(os.path.join(path, '__init__.py'))
+
+    @staticmethod
+    def _build_filter(*patterns):
+        """
+        Given a list of patterns, return a callable that will be true only if
+        the input matches at least one of the patterns.
+        """
+        return lambda name: any(fnmatchcase(name, pat=pat) for pat in patterns)
+
+
+class PEP420PackageFinder(PackageFinder):
+    @staticmethod
+    def _looks_like_package(path):
+        return True
+
+
+find_packages = PackageFinder.find
+find_namespace_packages = PEP420PackageFinder.find
+
+
+def _install_setup_requires(attrs):
+    # Note: do not use `setuptools.Distribution` directly, as
+    # our PEP 517 backend patch `distutils.core.Distribution`.
+    class MinimalDistribution(distutils.core.Distribution):
+        """
+        A minimal version of a distribution for supporting the
+        fetch_build_eggs interface.
+        """
+
+        def __init__(self, attrs):
+            _incl = 'dependency_links', 'setup_requires'
+            filtered = {k: attrs[k] for k in set(_incl) & set(attrs)}
+            distutils.core.Distribution.__init__(self, filtered)
+
+        def finalize_options(self):
+            """
+            Disable finalize_options to avoid building the working set.
+            Ref #2158.
+            """
+
+    dist = MinimalDistribution(attrs)
+
+    # Honor setup.cfg's options.
+    dist.parse_config_files(ignore_option_errors=True)
+    if dist.setup_requires:
+        dist.fetch_build_eggs(dist.setup_requires)
+
+
+def setup(**attrs):
+    # Make sure we have any requirements needed to interpret 'attrs'.
+    logging.configure()
+    _install_setup_requires(attrs)
+    return distutils.core.setup(**attrs)
+
+
+setup.__doc__ = distutils.core.setup.__doc__
+
+
+_Command = monkey.get_unpatched(distutils.core.Command)
+
+
+class Command(_Command):
+    __doc__ = _Command.__doc__
+
+    command_consumes_arguments = False
+
+    def __init__(self, dist, **kw):
+        """
+        Construct the command for dist, updating
+        vars(self) with any keyword parameters.
+        """
+        _Command.__init__(self, dist)
+        vars(self).update(kw)
+
+    def _ensure_stringlike(self, option, what, default=None):
+        val = getattr(self, option)
+        if val is None:
+            setattr(self, option, default)
+            return default
+        elif not isinstance(val, str):
+            raise DistutilsOptionError(
+                "'%s' must be a %s (got `%s`)" % (option, what, val)
+            )
+        return val
+
+    def ensure_string_list(self, option):
+        r"""Ensure that 'option' is a list of strings.  If 'option' is
+        currently a string, we split it either on /,\s*/ or /\s+/, so
+        "foo bar baz", "foo,bar,baz", and "foo,   bar baz" all become
+        ["foo", "bar", "baz"].
+        """
+        val = getattr(self, option)
+        if val is None:
+            return
+        elif isinstance(val, str):
+            setattr(self, option, re.split(r',\s*|\s+', val))
+        else:
+            if isinstance(val, list):
+                ok = all(isinstance(v, str) for v in val)
+            else:
+                ok = False
+            if not ok:
+                raise DistutilsOptionError(
+                    "'%s' must be a list of strings (got %r)" % (option, val)
+                )
+
+    def reinitialize_command(self, command, reinit_subcommands=0, **kw):
+        cmd = _Command.reinitialize_command(self, command, reinit_subcommands)
+        vars(cmd).update(kw)
+        return cmd
+
+
+def _find_all_simple(path):
+    """
+    Find all files under 'path'
+    """
+    results = (
+        os.path.join(base, file)
+        for base, dirs, files in os.walk(path, followlinks=True)
+        for file in files
+    )
+    return filter(os.path.isfile, results)
+
+
+def findall(dir=os.curdir):
+    """
+    Find all files under 'dir' and return the list of full filenames.
+    Unless dir is '.', return full filenames with dir prepended.
+    """
+    files = _find_all_simple(dir)
+    if dir == os.curdir:
+        make_rel = functools.partial(os.path.relpath, start=dir)
+        files = map(make_rel, files)
+    return list(files)
+
+
+class sic(str):
+    """Treat this string as-is (https://en.wikipedia.org/wiki/Sic)"""
+
+
+# Apply monkey patches
+monkey.patch_all()
